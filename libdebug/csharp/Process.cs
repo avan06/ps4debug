@@ -130,6 +130,25 @@ namespace libdebug
         }
 
         /// <summary>
+		/// Finds a virtual memory entry based off name
+		/// </summary>
+		/// <param name="name">Virtual memory entry name</param>
+		/// <param name="prot">Virtual memory entry protection level</param>
+		/// <returns></returns>
+		public MemoryEntry FindEntry(string name, int prot)
+        {
+            foreach (MemoryEntry entry in entries)
+            {
+                if (entry.name == name && entry.prot == prot)
+                {
+                    return entry;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Finds a virtual memory entry based off size
         /// </summary>
         /// <param name="size">Virtual memory entry size</param>

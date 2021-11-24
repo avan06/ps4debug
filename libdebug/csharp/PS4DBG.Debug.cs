@@ -38,21 +38,35 @@ namespace libdebug
             public fpregs savefpu;
             public dbregs dbreg64;
         }
-        /// <summary>
-        /// Debugger interrupt callback
-        /// </summary>
-        /// <param name="lwpid">Thread identifier</param>
-        /// <param name="status">status</param>
-        /// <param name="tdname">Thread name</param>
-        /// <param name="regs">Registers</param>
-        /// <param name="fpregs">Floating point registers</param>
-        /// <param name="dbregs">Debug registers</param>
-        public delegate void DebuggerInterruptCallback(uint lwpid, uint status, string tdname, regs regs, fpregs fpregs, dbregs dbregs);
+
+		public static string GetLocalIPAddress()
+		{
+			string localIP;
+			using (Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0))
+			{
+				socket.Connect("8.8.8.8", 65530);
+				IPEndPoint endPoint = socket.LocalEndPoint as IPEndPoint;
+				localIP = endPoint.Address.ToString();
+			}
+
+			return localIP;
+		}
+
+		/// <summary>
+		/// Debugger interrupt callback
+		/// </summary>
+		/// <param name="lwpid">Thread identifier</param>
+		/// <param name="status">status</param>
+		/// <param name="tdname">Thread name</param>
+		/// <param name="regs">Registers</param>
+		/// <param name="fpregs">Floating point registers</param>
+		/// <param name="dbregs">Debug registers</param>
+		public delegate void DebuggerInterruptCallback(uint lwpid, uint status, string tdname, regs regs, fpregs fpregs, dbregs dbregs);
         private void DebuggerThread(object obj)
         {
             DebuggerInterruptCallback callback = (DebuggerInterruptCallback)obj;
 
-            IPAddress ip = IPAddress.Parse("0.0.0.0");
+            IPAddress ip = IPAddress.Parse(GetLocalIPAddress());
             IPEndPoint endpoint = new IPEndPoint(ip, PS4DBG_DEBUG_PORT);
 
             Socket server = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -85,6 +99,7 @@ namespace libdebug
 
             server.Close();
         }
+
         /// <summary>
         /// Attach the debugger
         /// </summary>

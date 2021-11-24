@@ -20,10 +20,10 @@ namespace libdebug
         private Thread debugThread = null;
 
         // some global values
-        private const string LIBRARY_VERSION = "1.2";
+        private const string LIBRARY_VERSION = "1.2.1";
         private const int PS4DBG_PORT = 744;
         private const int PS4DBG_DEBUG_PORT = 755;
-        private const int NET_MAX_LENGTH = 8192;
+        private const int NET_MAX_LENGTH = 0x100000;
 
         private const int BROADCAST_PORT = 1010;
         private const uint BROADCAST_MAGIC = 0xFFFFAAAA;
@@ -96,7 +96,7 @@ namespace libdebug
             CMD_CONSOLE_END = 0xBDDD0002,
             CMD_CONSOLE_PRINT = 0xBDDD0003,
             CMD_CONSOLE_NOTIFY = 0xBDDD0004,
-            CMD_CONSOLE_INFO = 0xBDDD0005,
+            CMD_CONSOLE_INFO = 0xBDDD0005
         };
 
         public enum CMD_STATUS : uint
@@ -130,6 +130,7 @@ namespace libdebug
             VM_PROT_COPY = 0x10,
             VM_PROT_WANTS_COPY = 0x10
         };
+
         public enum WATCHPT_LENGTH : uint
         {
             DBREG_DR7_LEN_1 = 0x00,	/* 1 byte length */
@@ -137,6 +138,7 @@ namespace libdebug
             DBREG_DR7_LEN_4 = 0x03,
             DBREG_DR7_LEN_8 = 0x02,
         };
+
         public enum WATCHPT_BREAKTYPE : uint
         {
             DBREG_DR7_EXEC = 0x00,	/* break on execute       */
@@ -155,12 +157,14 @@ namespace libdebug
 
             return Encoding.ASCII.GetString(data, offset, length);
         }
+
         public static byte[] SubArray(byte[] data, int offset, int length)
         {
             byte[] bytes = new byte[length];
             Buffer.BlockCopy(data, offset, bytes, 0, length);
             return bytes;
         }
+
         public static object GetObjectFromBytes(byte[] buffer, Type type)
         {
             int size = Marshal.SizeOf(type);
@@ -174,6 +178,7 @@ namespace libdebug
 
             return r;
         }
+
         public static byte[] GetBytesFromObject(object obj)
         {
             int size = Marshal.SizeOf(obj);
@@ -203,6 +208,7 @@ namespace libdebug
 
             return new IPAddress(broadcastAddress);
         }
+
         private void SendCMDPacket(CMDS cmd, int length, params object[] fields)
         {
             CMDPacket packet = new CMDPacket
@@ -224,10 +230,10 @@ namespace libdebug
                     switch (field)
                     {
                         case char c:
-                            bytes = BitConverter.GetBytes(c);
+                            bytes = new byte[] { (byte)c };
                             break;
                         case byte b:
-                            bytes = BitConverter.GetBytes(b);
+                            bytes = new byte[] { b };
                             break;
                         case short s:
                             bytes = BitConverter.GetBytes(s);
@@ -266,6 +272,7 @@ namespace libdebug
                 SendData(data, length);
             }
         }
+
         private void SendData(byte[] data, int length)
         {
             int left = length;
@@ -289,6 +296,7 @@ namespace libdebug
                 left -= sent;
             }
         }
+
         private byte[] ReceiveData(int length)
         {
             MemoryStream s = new MemoryStream();
@@ -310,37 +318,32 @@ namespace libdebug
 
             return data;
         }
+
         private CMD_STATUS ReceiveStatus()
         {
             byte[] status = new byte[4];
             sock.Receive(status, 4, SocketFlags.None);
             return (CMD_STATUS)BitConverter.ToUInt32(status, 0);
         }
+
         private void CheckStatus()
         {
             CMD_STATUS status = ReceiveStatus();
             if (status != CMD_STATUS.CMD_SUCCESS)
-            {
-                throw new Exception("libdbg status " + ((uint)status).ToString("X"));
-            }
+                throw new Exception($"libdbg status 0x{(uint)status:X} {Enum.GetName(typeof(CMD_STATUS), status)}");
         }
 
         private void CheckConnected()
         {
             if (!IsConnected)
-            {
                 throw new Exception("libdbg: not connected");
-            }
         }
+
         private void CheckDebugging()
         {
             if (!IsDebugging)
-            {
                 throw new Exception("libdbg: not debugging");
-            }
         }
-
-
 
         /// <summary>
         /// Initializes PS4DBG class
@@ -413,17 +416,23 @@ namespace libdebug
         /// <summary>
         /// Connects to PlayStation 4
         /// </summary>
-        public void Connect()
+        public void Connect(int connectTimeout = 1000 * 10, int sendTimeout = 1000 * 10, int receiveTimeout= 1000 * 10)
         {
-            if (!IsConnected)
+            if (!IsConnected || !sock.Connected)
             {
                 sock.NoDelay = true;
                 sock.ReceiveBufferSize = NET_MAX_LENGTH;
                 sock.SendBufferSize = NET_MAX_LENGTH;
 
-                sock.ReceiveTimeout = 1000 * 10;
-
+                sock.SendTimeout = sendTimeout;
+                sock.ReceiveTimeout = receiveTimeout;
+                new Thread(new ThreadStart(() => {
+                    Thread.Sleep(connectTimeout);
+                    if (!sock.Connected) sock.Close();
+                    Thread.CurrentThread.Abort();
+                })).Start();
                 sock.Connect(enp);
+
                 IsConnected = true;
             }
         }
