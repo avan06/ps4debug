@@ -20,10 +20,10 @@ namespace libdebug
         private Thread debugThread = null;
 
         // some global values
-        private const string LIBRARY_VERSION = "1.2.1";
+        private const string LIBRARY_VERSION = "1.2.2";
         private const int PS4DBG_PORT = 744;
         private const int PS4DBG_DEBUG_PORT = 755;
-        private const int NET_MAX_LENGTH = 0x100000;
+        private const int NET_MAX_LENGTH = 0x20000; // 128kb
 
         private const int BROADCAST_PORT = 1010;
         private const uint BROADCAST_MAGIC = 0xFFFFAAAA;
@@ -96,7 +96,7 @@ namespace libdebug
             CMD_CONSOLE_END = 0xBDDD0002,
             CMD_CONSOLE_PRINT = 0xBDDD0003,
             CMD_CONSOLE_NOTIFY = 0xBDDD0004,
-            CMD_CONSOLE_INFO = 0xBDDD0005
+            CMD_CONSOLE_INFO = 0xBDDD0005,
         };
 
         public enum CMD_STATUS : uint
@@ -230,10 +230,12 @@ namespace libdebug
                     switch (field)
                     {
                         case char c:
-                            bytes = new byte[] { (byte)c };
+                            bytes = new byte[1];
+                            bytes[0] = BitConverter.GetBytes(c)[0];
                             break;
                         case byte b:
-                            bytes = new byte[] { b };
+                            bytes = new byte[1];
+                            bytes[0] = BitConverter.GetBytes(b)[0];
                             break;
                         case short s:
                             bytes = BitConverter.GetBytes(s);
@@ -303,10 +305,11 @@ namespace libdebug
 
             int left = length;
             int recv = 0;
+            byte[] b = new byte[NET_MAX_LENGTH];
             while (left > 0)
             {
-                byte[] b = new byte[NET_MAX_LENGTH];
-                recv = sock.Receive(b, NET_MAX_LENGTH, SocketFlags.None);
+                // adhere to length
+                recv = sock.Receive(b, Math.Min(left, NET_MAX_LENGTH), SocketFlags.None);
                 s.Write(b, 0, recv);
                 left -= recv;
             }
@@ -314,7 +317,7 @@ namespace libdebug
             byte[] data = s.ToArray();
 
             s.Dispose();
-            GC.Collect();
+            //GC.Collect();
 
             return data;
         }
@@ -335,14 +338,12 @@ namespace libdebug
 
         private void CheckConnected()
         {
-            if (!IsConnected)
-                throw new Exception("libdbg: not connected");
+            if (!IsConnected) throw new Exception("libdbg: not connected");
         }
 
         private void CheckDebugging()
         {
-            if (!IsDebugging)
-                throw new Exception("libdbg: not debugging");
+            if (!IsDebugging) throw new Exception("libdbg: not debugging");
         }
 
         /// <summary>
@@ -378,12 +379,12 @@ namespace libdebug
         /// <summary>
         /// Find the playstation ip
         /// </summary>
-        public static string FindPlayStation()
+        public static string FindPlayStation(int timeout = 100, string subnet_mask = "255.255.255.0")
         {
             UdpClient uc = new UdpClient();
             IPEndPoint server = new IPEndPoint(IPAddress.Any, 0);
             uc.EnableBroadcast = true;
-            uc.Client.ReceiveTimeout = 4000;
+            uc.Client.ReceiveTimeout = timeout;
 
             byte[] magic = BitConverter.GetBytes(BROADCAST_MAGIC);
 
@@ -394,58 +395,76 @@ namespace libdebug
                 if (ip.AddressFamily == AddressFamily.InterNetwork)
                 {
                     addr = ip;
+                    try
+                    {
+                        uc.Send(magic, magic.Length, new IPEndPoint(GetBroadcastAddress(addr, IPAddress.Parse(subnet_mask)), BROADCAST_PORT));
+
+                        byte[] resp = uc.Receive(ref server);
+                        if (BitConverter.ToUInt32(resp, 0) == BROADCAST_MAGIC)
+                            return server.Address.ToString();
+                    }
+                    catch (Exception)
+                    {
+                        Console.WriteLine("Wrong IP, trying next one...");
+                    }
                 }
             }
 
-            if (addr == null)
-            {
-                throw new Exception("libdbg broadcast error: could not get host ip");
-            }
-
-            uc.Send(magic, magic.Length, new IPEndPoint(GetBroadcastAddress(addr, IPAddress.Parse("255.255.255.0")), BROADCAST_PORT));
-
-            byte[] resp = uc.Receive(ref server);
-            if (BitConverter.ToUInt32(resp, 0) != BROADCAST_MAGIC)
-            {
-                throw new Exception("libdbg broadcast error: wrong magic on udp server");
-            }
-
-            return server.Address.ToString();
+            return "";
         }
 
         /// <summary>
         /// Connects to PlayStation 4
         /// </summary>
-        public void Connect(int connectTimeout = 1000 * 10, int sendTimeout = 1000 * 10, int receiveTimeout= 1000 * 10)
+        public bool Connect(int connectTimeout = 1000 * 10, int sendTimeout = 1000 * 10, int receiveTimeout = 1000 * 10)
         {
             if (!IsConnected || !sock.Connected)
             {
                 sock.NoDelay = true;
                 sock.ReceiveBufferSize = NET_MAX_LENGTH;
                 sock.SendBufferSize = NET_MAX_LENGTH;
-
+ 
                 sock.SendTimeout = sendTimeout;
                 sock.ReceiveTimeout = receiveTimeout;
-                new Thread(new ThreadStart(() => {
-                    Thread.Sleep(connectTimeout);
-                    if (!sock.Connected) sock.Close();
-                    Thread.CurrentThread.Abort();
-                })).Start();
-                sock.Connect(enp);
 
-                IsConnected = true;
+                try
+                {
+                    new Thread(new ThreadStart(() => {
+                        Thread.Sleep(connectTimeout);
+                        if (!sock.Connected) sock.Close();
+                        Thread.CurrentThread.Abort();
+                    })).Start();
+                    sock.Connect(enp);
+
+                    IsConnected = true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.ToString());
+                    return false;
+                }
             }
+            return IsConnected;
         }
 
         /// <summary>
         /// Disconnects from PlayStation 4
         /// </summary>
-        public void Disconnect()
+        public bool Disconnect()
         {
             SendCMDPacket(CMDS.CMD_CONSOLE_END, 0);
-            sock.Shutdown(SocketShutdown.Both);
-            sock.Close();
+            try
+            {
+                sock.Shutdown(SocketShutdown.Both);
+                sock.Close();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                return false;
+            }
             IsConnected = false;
+            return true;
         }
 
         /// <summary>

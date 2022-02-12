@@ -39,29 +39,29 @@ namespace libdebug
             public dbregs dbreg64;
         }
 
-		public static string GetLocalIPAddress()
-		{
-			string localIP;
-			using (Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0))
-			{
-				socket.Connect("8.8.8.8", 65530);
-				IPEndPoint endPoint = socket.LocalEndPoint as IPEndPoint;
-				localIP = endPoint.Address.ToString();
-			}
+        public static string GetLocalIPAddress()
+        {
+            string localIP;
+            using (Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0))
+            {
+                socket.Connect("8.8.8.8", 65530);
+                IPEndPoint endPoint = socket.LocalEndPoint as IPEndPoint;
+                localIP = endPoint.Address.ToString();
+            }
 
-			return localIP;
-		}
+            return localIP;
+        }
 
-		/// <summary>
-		/// Debugger interrupt callback
-		/// </summary>
-		/// <param name="lwpid">Thread identifier</param>
-		/// <param name="status">status</param>
-		/// <param name="tdname">Thread name</param>
-		/// <param name="regs">Registers</param>
-		/// <param name="fpregs">Floating point registers</param>
-		/// <param name="dbregs">Debug registers</param>
-		public delegate void DebuggerInterruptCallback(uint lwpid, uint status, string tdname, regs regs, fpregs fpregs, dbregs dbregs);
+        /// <summary>
+        /// Debugger interrupt callback
+        /// </summary>
+        /// <param name="lwpid">Thread identifier</param>
+        /// <param name="status">status</param>
+        /// <param name="tdname">Thread name</param>
+        /// <param name="regs">Registers</param>
+        /// <param name="fpregs">Floating point registers</param>
+        /// <param name="dbregs">Debug registers</param>
+        public delegate void DebuggerInterruptCallback(uint lwpid, uint status, string tdname, regs regs, fpregs fpregs, dbregs dbregs);
         private void DebuggerThread(object obj)
         {
             DebuggerInterruptCallback callback = (DebuggerInterruptCallback)obj;
@@ -121,10 +121,7 @@ namespace libdebug
             debugThread.Start(callback);
 
             // wait until server is started
-            while (!IsDebugging)
-            {
-                Thread.Sleep(100);
-            }
+            while (!IsDebugging) Thread.Sleep(100);
 
             SendCMDPacket(CMDS.CMD_DEBUG_ATTACH, CMD_DEBUG_ATTACH_PACKET_SIZE, pid);
             CheckStatus();
@@ -188,7 +185,7 @@ namespace libdebug
             SendCMDPacket(CMDS.CMD_DEBUG_STOPGO, CMD_DEBUG_STOPGO_PACKET_SIZE, 0);
             CheckStatus();
         }
-
+        
         /// <summary>
         /// Change breakpoint, to remove said breakpoint send the same index but disable it (address is ignored)
         /// </summary>
