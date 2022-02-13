@@ -62,44 +62,53 @@ namespace libdebug
         /// <param name="fpregs">Floating point registers</param>
         /// <param name="dbregs">Debug registers</param>
         public delegate void DebuggerInterruptCallback(uint lwpid, uint status, string tdname, regs regs, fpregs fpregs, dbregs dbregs);
+        private Socket debuggerServer;
+        private Socket debuggerClient;
         private void DebuggerThread(object obj)
         {
-            DebuggerInterruptCallback callback = (DebuggerInterruptCallback)obj;
+            DebuggerInterruptCallback callback = null;
+            if (obj != null) callback = (DebuggerInterruptCallback)obj;
 
             IPAddress ip = IPAddress.Parse(GetLocalIPAddress());
             IPEndPoint endpoint = new IPEndPoint(ip, PS4DBG_DEBUG_PORT);
 
-            Socket server = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-
-            server.Bind(endpoint);
-            server.Listen(0);
-
-            IsDebugging = true;
-
-            Socket cl = server.Accept();
-
-            cl.NoDelay = true;
-            cl.Blocking = false;
-
-            while (IsDebugging)
+            using (debuggerServer = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp))
             {
-                if (cl.Available == DEBUG_INTERRUPT_SIZE)
+                debuggerServer.Bind(endpoint);
+                debuggerServer.Listen(0);
+
+                IsDebugging = true;
+
+                using (debuggerClient = debuggerServer.Accept())
                 {
-                    byte[] data = new byte[DEBUG_INTERRUPT_SIZE];
-                    int bytes = cl.Receive(data, DEBUG_INTERRUPT_SIZE, SocketFlags.None);
-                    if (bytes == DEBUG_INTERRUPT_SIZE)
+                    debuggerClient.NoDelay = true;
+                    debuggerClient.Blocking = false;
+
+                    if (obj != null)
                     {
-                        DebuggerInterruptPacket packet = (DebuggerInterruptPacket)GetObjectFromBytes(data, typeof(DebuggerInterruptPacket));
-                        callback(packet.lwpid, packet.status, packet.tdname, packet.reg64, packet.savefpu, packet.dbreg64);
+                        while (IsDebugging)
+                        {
+                            if (debuggerClient.Available == DEBUG_INTERRUPT_SIZE)
+                            {
+                                byte[] data = new byte[DEBUG_INTERRUPT_SIZE];
+                                int bytes = debuggerClient.Receive(data, DEBUG_INTERRUPT_SIZE, SocketFlags.None);
+                                if (bytes == DEBUG_INTERRUPT_SIZE)
+                                {
+                                    DebuggerInterruptPacket packet = (DebuggerInterruptPacket)GetObjectFromBytes(data, typeof(DebuggerInterruptPacket));
+                                    callback(packet.lwpid, packet.status, packet.tdname, packet.reg64, packet.savefpu, packet.dbreg64);
+                                }
+                            }
+                            Thread.Sleep(100);
+                        }
                     }
                 }
 
-                Thread.Sleep(100);
+                if (debuggerServer.Connected) debuggerServer.Shutdown(SocketShutdown.Both);
+                debuggerServer.Close();
             }
-
-            server.Close();
         }
 
+        public int AttachPID { get; private set; }
         /// <summary>
         /// Attach the debugger
         /// </summary>
@@ -117,7 +126,7 @@ namespace libdebug
 
             IsDebugging = false;
 
-            debugThread = new Thread(DebuggerThread) {IsBackground = true};
+            debugThread = new Thread(DebuggerThread) { IsBackground = true };
             debugThread.Start(callback);
 
             // wait until server is started
@@ -125,6 +134,7 @@ namespace libdebug
 
             SendCMDPacket(CMDS.CMD_DEBUG_ATTACH, CMD_DEBUG_ATTACH_PACKET_SIZE, pid);
             CheckStatus();
+            AttachPID = pid;
         }
 
         /// <summary>
@@ -144,6 +154,40 @@ namespace libdebug
 
                 debugThread.Join();
                 debugThread = null;
+            }
+        }
+
+        /// <summary>
+        /// DetachDebugger will be executed only when AttachPID still exists, otherwise close socket and debugThread
+        /// </summary>
+        public void TryDetachDebugger()
+        {
+            if (!IsDebugging) return;
+
+            CheckConnected();
+
+            ProcessInfo processInfo = GetProcessInfo(AttachPID);
+            if (IsDebugging && processInfo.pid == AttachPID) DetachDebugger();
+            else
+            {
+                if (IsDebugging) IsDebugging = false;
+                if (debuggerServer != null)
+                {
+                    debuggerServer.Close();
+                    debuggerServer.Dispose();
+                    debuggerServer = null;
+                }
+                if (debuggerClient != null)
+                {
+                    debuggerClient.Close();
+                    debuggerClient.Dispose();
+                    debuggerClient = null;
+                }
+                if (debugThread != null)
+                {
+                    debugThread.Abort();
+                    debugThread = null;
+                }
             }
         }
 

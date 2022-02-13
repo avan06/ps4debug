@@ -20,7 +20,7 @@ namespace libdebug
         private Thread debugThread = null;
 
         // some global values
-        private const string LIBRARY_VERSION = "1.2.2";
+        private const string LIBRARY_VERSION = "1.2.3";
         private const int PS4DBG_PORT = 744;
         private const int PS4DBG_DEBUG_PORT = 755;
         private const int NET_MAX_LENGTH = 0x20000; // 128kb
@@ -362,7 +362,7 @@ namespace libdebug
         /// <param name="ip">PlayStation 4 ip address</param>
         public PS4DBG(string ip)
         {
-            IPAddress addr = null;
+            IPAddress addr;
             try
             {
                 addr = IPAddress.Parse(ip);
