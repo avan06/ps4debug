@@ -436,12 +436,11 @@ namespace libdebug
                     })).Start();
                     sock.Connect(enp);
 
-                    IsConnected = true;
+                    IsConnected = sock.Connected;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine(ex.ToString());
-                    return false;
+                    throw ex;
                 }
             }
             return IsConnected;
