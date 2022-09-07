@@ -20,6 +20,9 @@ namespace libdebug
         private const int CMD_DEBUG_SETREGS_PACKET_SIZE = 8;
         private const int CMD_DEBUG_STOPGO_PACKET_SIZE = 4;
         private const int CMD_DEBUG_THRINFO_PACKET_SIZE = 4;
+
+        private const int CMD_DEBUG_EXT_STOPGO_PACKET_SIZE = 5; //ps4debug ext fw by ctn123
+
         //receive size
         private const int DEBUG_INTERRUPT_SIZE = 0x4A0;
         private const int DEBUG_THRINFO_SIZE = 40;
@@ -38,20 +41,6 @@ namespace libdebug
             public fpregs savefpu;
             public dbregs dbreg64;
         }
-
-        public static string GetLocalIPAddress()
-        {
-            string localIP;
-            using (Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0))
-            {
-                socket.Connect("8.8.8.8", 65530);
-                IPEndPoint endPoint = socket.LocalEndPoint as IPEndPoint;
-                localIP = endPoint.Address.ToString();
-            }
-
-            return localIP;
-        }
-
         /// <summary>
         /// Debugger interrupt callback
         /// </summary>
@@ -69,7 +58,7 @@ namespace libdebug
             DebuggerInterruptCallback callback = null;
             if (obj != null) callback = (DebuggerInterruptCallback)obj;
 
-            IPAddress ip = IPAddress.Parse(GetLocalIPAddress());
+            IPAddress ip = IPAddress.Parse("0.0.0.0");
             IPEndPoint endpoint = new IPEndPoint(ip, PS4DBG_DEBUG_PORT);
 
             using (debuggerServer = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp))
@@ -229,7 +218,105 @@ namespace libdebug
             SendCMDPacket(CMDS.CMD_DEBUG_STOPGO, CMD_DEBUG_STOPGO_PACKET_SIZE, 0);
             CheckStatus();
         }
-        
+
+        /// <summary>
+        /// ps4debug ext fw by ctn123
+        /// </summary>
+        public int GetExtFWVersion()
+        {
+            if (ExtFWVersion != 0) return ExtFWVersion;
+
+            try
+            {
+                CheckConnected();
+
+                SendCMDPacket(CMDS.CMD_EXT_FW_VERSION, 0);
+
+                byte[] ldata = new byte[2];
+                var result = sock.BeginReceive(ldata, 0, ldata.Length, SocketFlags.None, null, null);
+                if (result.AsyncWaitHandle.WaitOne(1000, true))
+                {
+                    sock.EndReceive(result);
+                    ExtFWVersion = BitConverter.ToUInt16(ldata, 0);
+                    Console.WriteLine("Console Version: " + ExtFWVersion);
+                }
+                else
+                {
+                    result.AsyncWaitHandle.Close();
+                    throw new Exception("GetExtFWVersion sock receive timeout!");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+                ExtFWVersion = -1;
+            }
+            return ExtFWVersion;
+        }
+
+        /// <summary>
+        /// ps4debug ext fw by ctn123
+        /// </summary>
+        /// <param name="pid"></param>
+        public void ProcessExtStop(int pid)
+        {
+            if (ExtFWVersion <= 0) return;
+
+            try
+            {
+                CheckConnected();
+
+                SendCMDPacket(CMDS.CMD_DEBUG_EXT_STOPGO, CMD_DEBUG_EXT_STOPGO_PACKET_SIZE, (uint)pid, (byte)1);
+                CheckStatus();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+        }
+
+        /// <summary>
+        /// ps4debug ext fw by ctn123
+        /// </summary>
+        /// <param name="pid"></param>
+        public void ProcessExtResume(int pid)
+        {
+            if (ExtFWVersion <= 0) return;
+
+            try
+            {
+                CheckConnected();
+
+                SendCMDPacket(CMDS.CMD_DEBUG_EXT_STOPGO, CMD_DEBUG_EXT_STOPGO_PACKET_SIZE, (uint)pid, (byte)0);
+                CheckStatus();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+        }
+
+        /// <summary>
+        /// ps4debug ext fw by ctn123
+        /// </summary>
+        /// <param name="pid"></param>
+        public void ProcessExtKill(int pid)
+        {
+            if (ExtFWVersion <= 0) return;
+
+            try
+            {
+                CheckConnected();
+
+                SendCMDPacket(CMDS.CMD_DEBUG_EXT_STOPGO, CMD_DEBUG_EXT_STOPGO_PACKET_SIZE, (uint)pid, (byte)2);
+                CheckStatus();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+        }
+
         /// <summary>
         /// Change breakpoint, to remove said breakpoint send the same index but disable it (address is ignored)
         /// </summary>

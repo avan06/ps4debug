@@ -17,10 +17,14 @@ namespace libdebug
 
         public bool IsDebugging { get; private set; } = false;
 
+        public string Version { get; private set; } = "";
+
+        public int ExtFWVersion { get; private set; } = 0;
+
         private Thread debugThread = null;
 
         // some global values
-        private const string LIBRARY_VERSION = "1.2.3";
+        private const string LIBRARY_VERSION = "1.2.4";
         private const int PS4DBG_PORT = 744;
         private const int PS4DBG_DEBUG_PORT = 755;
         private const int NET_MAX_LENGTH = 0x20000; // 128kb
@@ -57,6 +61,7 @@ namespace libdebug
         public enum CMDS : uint
         {
             CMD_VERSION = 0xBD000001,
+            CMD_EXT_FW_VERSION = 0xBD000500,
 
             CMD_PROC_LIST = 0xBDAA0001,
             CMD_PROC_READ = 0xBDAA0002,
@@ -87,6 +92,7 @@ namespace libdebug
             CMD_DEBUG_STOPGO = 0xBDBB0010,
             CMD_DEBUG_THRINFO = 0xBDBB0011,
             CMD_DEBUG_SINGLESTEP = 0xBDBB0012,
+            CMD_DEBUG_EXT_STOPGO = 0xBDBB0500,
 
             CMD_KERN_BASE = 0xBDCC0001,
             CMD_KERN_READ = 0xBDCC0002,
@@ -222,57 +228,54 @@ namespace libdebug
 
             if (length > 0)
             {
-                MemoryStream rs = new MemoryStream();
-                foreach (object field in fields)
+                using (MemoryStream rs = new MemoryStream())
                 {
-                    byte[] bytes = null;
-
-                    switch (field)
+                    foreach (object field in fields)
                     {
-                        case char c:
-                            bytes = new byte[1];
-                            bytes[0] = BitConverter.GetBytes(c)[0];
-                            break;
-                        case byte b:
-                            bytes = new byte[1];
-                            bytes[0] = BitConverter.GetBytes(b)[0];
-                            break;
-                        case short s:
-                            bytes = BitConverter.GetBytes(s);
-                            break;
-                        case ushort us:
-                            bytes = BitConverter.GetBytes(us);
-                            break;
-                        case int i:
-                            bytes = BitConverter.GetBytes(i);
-                            break;
-                        case uint u:
-                            bytes = BitConverter.GetBytes(u);
-                            break;
-                        case long l:
-                            bytes = BitConverter.GetBytes(l);
-                            break;
-                        case ulong ul:
-                            bytes = BitConverter.GetBytes(ul);
-                            break;
-                        case byte[] ba:
-                            bytes = ba;
-                            break;
+                        byte[] bytes = null;
+
+                        switch (field)
+                        {
+                            case char c:
+                                bytes = new byte[1];
+                                bytes[0] = BitConverter.GetBytes(c)[0];
+                                break;
+                            case byte b:
+                                bytes = new byte[1];
+                                bytes[0] = BitConverter.GetBytes(b)[0];
+                                break;
+                            case short s:
+                                bytes = BitConverter.GetBytes(s);
+                                break;
+                            case ushort us:
+                                bytes = BitConverter.GetBytes(us);
+                                break;
+                            case int i:
+                                bytes = BitConverter.GetBytes(i);
+                                break;
+                            case uint u:
+                                bytes = BitConverter.GetBytes(u);
+                                break;
+                            case long l:
+                                bytes = BitConverter.GetBytes(l);
+                                break;
+                            case ulong ul:
+                                bytes = BitConverter.GetBytes(ul);
+                                break;
+                            case byte[] ba:
+                                bytes = ba;
+                                break;
+                        }
+
+                        if (bytes != null) rs.Write(bytes, 0, bytes.Length);
+                        data = rs.ToArray();
                     }
-
-                    if (bytes != null) rs.Write(bytes, 0, bytes.Length);
                 }
-
-                data = rs.ToArray();
-                rs.Dispose();
             }
 
             SendData(GetBytesFromObject(packet), CMD_PACKET_SIZE);
 
-            if (data != null)
-            {
-                SendData(data, length);
-            }
+            if (data != null) SendData(data, length);
         }
 
         private void SendData(byte[] data, int length)
@@ -416,14 +419,14 @@ namespace libdebug
         /// <summary>
         /// Connects to PlayStation 4
         /// </summary>
-        public bool Connect(int connectTimeout = 1000 * 10, int sendTimeout = 1000 * 10, int receiveTimeout = 1000 * 10)
+        public bool Connect(int connectTimeout = 1000 * 10, int sendTimeout = 1000 * 10, int receiveTimeout = 1000 * 10, bool getVersion = false)
         {
             if (!IsConnected || !sock.Connected)
             {
                 sock.NoDelay = true;
                 sock.ReceiveBufferSize = NET_MAX_LENGTH;
                 sock.SendBufferSize = NET_MAX_LENGTH;
- 
+
                 sock.SendTimeout = sendTimeout;
                 sock.ReceiveTimeout = receiveTimeout;
 
@@ -437,6 +440,11 @@ namespace libdebug
                     sock.Connect(enp);
 
                     IsConnected = sock.Connected;
+                    if (getVersion)
+                    {
+                        GetConsoleDebugVersion();
+                        GetExtFWVersion();
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -469,16 +477,15 @@ namespace libdebug
         /// <summary>
         /// Get current ps4debug version from library
         /// </summary>
-        public string GetLibraryDebugVersion()
-        {
-            return LIBRARY_VERSION;
-        }
+        public string GetLibraryDebugVersion() => LIBRARY_VERSION;
 
         /// <summary>
         /// Get the current ps4debug version from console
         /// </summary>
         public string GetConsoleDebugVersion()
         {
+            if (Version != "") return Version;
+
             CheckConnected();
 
             SendCMDPacket(CMDS.CMD_VERSION, 0);
@@ -491,7 +498,8 @@ namespace libdebug
             byte[] data = new byte[length];
             sock.Receive(data, length, SocketFlags.None);
 
-            return ConvertASCII(data, 0);
+            Version = ConvertASCII(data, 0);
+            return Version;
         }
     }
 }
